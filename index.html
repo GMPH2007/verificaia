@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VerificaIA & HumanizaTexto Pro 2026 | Detector Turnitin & Humanizador en Español</title>
+  <title>VerificaIA & HumanizaTexto Pro 2026</title>
   <meta name="description" content="Detector de IA y Humanizador de textos calibrado para Turnitin, ChatGPT 4o, Gemini y Claude en español. Redacción 100% humana e indetectable.">
+  <meta property="og:title" content="VerificaIA & HumanizaTexto Pro 2026">
+  <meta property="og:description" content="Detector de IA y Humanizador de textos calibrado para Turnitin, ChatGPT 4o, Gemini y Claude en español. Redacción 100% humana e indetectable.">
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -1026,6 +1028,15 @@
     const ADMIN_PIN = "PAITA2026";
     const MASTER_KEYS = ['VIP-2026-PAITA', 'PAITA20', 'GERSONVIP', 'PRO-20SOLES', 'VIP2026'];
 
+    // Safe iframe alert override
+    window.alert = function(msg) {
+      try {
+        showToast(String(msg), 'info');
+      } catch (e) {
+        console.log('[Notice]', msg);
+      }
+    };
+
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
       checkAutoRedirectFromPayment();
@@ -1068,60 +1079,53 @@
     // --------------------------------------------------------------
     // PERSISTENCIA Y CARGA DE DATOS
     // --------------------------------------------------------------
-        // ─── CICLO DE 15 CRÉDITOS DIARIOS (24 HORAS EXACTAS) ──────────────────────
-    const CYCLE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 Horas
+    // ─── CICLO DE 15 CRÉDITOS DIARIOS (24 HORAS EXACTAS) ──────────────────────
+    const CYCLE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 Horas exactas
 
     function checkDailyCreditCycle() {
       if (STATE.isVip) return;
 
       const now = Date.now();
       let cycleStart = parseInt(localStorage.getItem('verificaia_cycle_start') || '0', 10);
-      let storedCredits = localStorage.getItem('verificaia_credits');
+      const isV15Ready = localStorage.getItem('verificaia_v15_ready') === 'true';
 
-      // Si es un usuario nuevo (primera vez absoluto en la web):
-      if (!cycleStart || storedCredits === null) {
+      // Forzar inicialización de 15 créditos si es la primera vez que carga esta versión
+      if (!isV15Ready) {
         cycleStart = now;
         STATE.cycleStart = cycleStart;
         STATE.freeCreditsLeft = 15;
         localStorage.setItem('verificaia_cycle_start', cycleStart.toString());
         localStorage.setItem('verificaia_credits', '15');
+        localStorage.setItem('verificaia_v15_ready', 'true');
+        return;
+      }
+
+      // Si no existe ciclo o ya transcurrieron las 24 horas exactas: RENUEVA A 15 CRÉDITOS
+      if (!cycleStart || (now - cycleStart) >= CYCLE_DURATION_MS) {
+        const wasDepleted = localStorage.getItem('verificaia_credits') === '0';
+        cycleStart = now;
+        STATE.cycleStart = cycleStart;
+        STATE.freeCreditsLeft = 15;
+
+        localStorage.setItem('verificaia_cycle_start', cycleStart.toString());
+        localStorage.setItem('verificaia_credits', '15');
+
+        if (wasDepleted) {
+          showToast('🎉 ¡Se cumplieron las 24 horas! Tus 15 créditos diarios se han renovado.', 'success');
+        }
       } else {
         STATE.cycleStart = cycleStart;
-        const elapsed = now - cycleStart;
-
-        // Si ya pasaron las 24 horas exactas desde el inicio del ciclo:
-        if (elapsed >= CYCLE_DURATION_MS) {
-          STATE.cycleStart = now;
-          STATE.freeCreditsLeft = 15;
-          localStorage.setItem('verificaia_cycle_start', now.toString());
-          localStorage.setItem('verificaia_credits', '15');
-          showToast('🎉 ¡Se cumplieron las 24 horas! Tus 15 créditos diarios han sido renovados.', 'success');
-        } else {
-          // Dentro de las 24 horas: CONSERVAR LOS CRÉDITOS QUE QUEDAN
-          STATE.freeCreditsLeft = Math.max(0, parseInt(storedCredits, 10));
-        }
+        const stored = localStorage.getItem('verificaia_credits');
+        STATE.freeCreditsLeft = stored !== null ? Math.min(15, parseInt(stored, 10)) : 15;
       }
-
-      // Sincronizar con cuenta de usuario si está logueado
-      if (STATE.currentUser) {
-        syncUserAccountData(false);
-      }
-    }
-
-    function deductCredit() {
-      if (STATE.isVip) return;
-      STATE.freeCreditsLeft = Math.max(0, STATE.freeCreditsLeft - 1);
-      localStorage.setItem('verificaia_credits', STATE.freeCreditsLeft.toString());
 
       if (STATE.currentUser) {
         syncUserAccountData(false);
       }
-
-      updateCreditDisplay();
     }
 
     function getTimeUntilRenewal() {
-      if (!STATE.cycleStart) return { hours: 24, minutes: 0, seconds: 0, text: '24h 00m', diff: CYCLE_DURATION_MS };
+      if (!STATE.cycleStart) return { hours: 24, minutes: 0, seconds: 0, text: '24h 00m' };
       const now = Date.now();
       const nextReset = STATE.cycleStart + CYCLE_DURATION_MS;
       const diff = Math.max(0, nextReset - now);
@@ -1158,15 +1162,15 @@
           } else {
             timerBadge.classList.remove('hidden');
             timerBadge.innerText = t.short;
-            timerBadge.className = "text-[10px] text-slate-400 font-mono bg-slate-800/90 px-1.5 py-0.5 rounded border border-slate-700/50";
+            timerBadge.className = "text-[10px] text-slate-400 font-mono bg-slate-800 px-1.5 py-0.5 rounded";
           }
         }
       }, 1000);
     }
 
     function loadStoredData() {
-      // 1. Cargar usuario registrado si existe sesión
-      loadStoredUserSession();
+      // 1. Cargar usuario de Google si existe
+      loadStoredGoogleUser();
 
       // 2. Verificar ciclo diario de 15 créditos
       checkDailyCreditCycle();
@@ -1427,7 +1431,11 @@
         btn.disabled = false;
         lucide.createIcons();
 
-        deductCredit();
+        if (!STATE.isVip) {
+          STATE.freeCreditsLeft = Math.max(0, STATE.freeCreditsLeft - 1);
+          localStorage.setItem('verificaia_credits', STATE.freeCreditsLeft.toString());
+          updateCreditDisplay();
+        }
 
         // 1. Detección de marcadores sintéticos
         let markerScore = 0;
@@ -1722,7 +1730,11 @@
         btn.innerHTML = originalText;
         btn.disabled = false;
 
-        deductCredit();
+        if (!STATE.isVip) {
+          STATE.freeCreditsLeft = Math.max(0, STATE.freeCreditsLeft - 1);
+          localStorage.setItem('verificaia_credits', STATE.freeCreditsLeft.toString());
+          updateCreditDisplay();
+        }
 
         let transformed = text;
         const mode = STATE.currentMode;
@@ -1948,7 +1960,7 @@
         document.getElementById('admin-dashboard-view').classList.remove('hidden');
         lucide.createIcons();
       } else {
-        alert("PIN incorrecto. Acceso reservado únicamente para el dueño.");
+        showToast("PIN incorrecto. Acceso reservado únicamente para el dueño.", "error");
       }
     }
 
@@ -1963,13 +1975,13 @@
       document.getElementById('generated-key-text').innerText = newKey;
       navigator.clipboard.writeText(newKey);
 
-      alert(`✅ Clave generada y copiada al portapapeles: ${newKey}\n\nEnvíale este código a tu cliente para que active sus 30 días.`);
+      showToast(`✅ Clave generada y copiada: ${newKey}`, "success");
     }
 
     function forceActivateCurrentUser() {
       activateVipPlan(30);
       closeAdminModal();
-      alert("Membresía VIP activada en este navegador por 30 días.");
+      showToast("Membresía VIP activada en este navegador por 30 días.", "success");
     }
 
     function resetCurrentUserVip() {
@@ -1994,7 +2006,7 @@
       updateDetectorCounters();
       updateCreditDisplay();
       closeAdminModal();
-      alert("Se restableció el navegador a modo Gratis con 3 créditos.");
+      showToast("Se restableció el navegador a modo Gratis con 3 créditos.", "info");
     }
 
     // --------------------------------------------------------------
@@ -2191,57 +2203,6 @@
           closeAuthModal();
           showToast(`¡Conectado con tu cuenta de Google (${email})!`, 'success');
         }
-      }
-    }
-
-    function loadStoredUserSession() {
-      const saved = localStorage.getItem('verificaia_current_user');
-      if (saved) {
-        try {
-          STATE.currentUser = JSON.parse(saved);
-          syncUserAccountData(true);
-          applyUserAuthUi();
-        } catch (e) {
-          localStorage.removeItem('verificaia_current_user');
-        }
-      }
-    }
-
-    function syncUserAccountData(isLogin) {
-      if (!STATE.currentUser || !STATE.currentUser.email) return;
-      const email = STATE.currentUser.email;
-      const usersDb = JSON.parse(localStorage.getItem('verificaia_users_db') || '{}');
-      const userData = usersDb[email] || {};
-
-      if (isLogin) {
-        // Al iniciar sesión: restaurar créditos guardados de esta cuenta
-        if (userData.credits !== undefined) {
-          STATE.freeCreditsLeft = parseInt(userData.credits, 10);
-          localStorage.setItem('verificaia_credits', STATE.freeCreditsLeft.toString());
-        }
-        if (userData.cycleStart) {
-          STATE.cycleStart = parseInt(userData.cycleStart, 10);
-          localStorage.setItem('verificaia_cycle_start', STATE.cycleStart.toString());
-        }
-        if (userData.isVip && userData.vipExpiry) {
-          const exp = new Date(userData.vipExpiry);
-          if (exp > new Date()) {
-            STATE.isVip = true;
-            STATE.vipExpiry = exp;
-            localStorage.setItem('verificaia_vip', 'true');
-            localStorage.setItem('verificaia_expiry', userData.vipExpiry);
-            applyVipUi();
-          }
-        }
-      } else {
-        // Guardar estado actual en la cuenta
-        userData.credits = STATE.freeCreditsLeft;
-        userData.cycleStart = STATE.cycleStart;
-        userData.isVip = STATE.isVip;
-        userData.vipExpiry = STATE.vipExpiry ? STATE.vipExpiry.toISOString() : null;
-        userData.lastActive = Date.now();
-        usersDb[email] = userData;
-        localStorage.setItem('verificaia_users_db', JSON.stringify(usersDb));
       }
     }
 

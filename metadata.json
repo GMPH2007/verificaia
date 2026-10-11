@@ -1,0 +1,8 @@
+{
+  "name": "VerificaIA & HumanizaTexto Pro 2026",
+  "description": "Detector de IA y Humanizador de textos calibrado para Turnitin, ChatGPT 4o, Gemini y Claude en español. Redacción 100% humana e indetectable.",
+  "requestFramePermissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

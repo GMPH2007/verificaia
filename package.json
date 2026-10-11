@@ -1,0 +1,14 @@
+{
+  "name": "verificaia",
+  "version": "1.0.0",
+  "description": "Detector de IA y Humanizador de textos calibrado para Turnitin, ChatGPT 4o, Gemini y Claude en español. Redacción 100% humana e indetectable.",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "echo 'Build complete'"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
