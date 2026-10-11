@@ -1068,53 +1068,60 @@
     // --------------------------------------------------------------
     // PERSISTENCIA Y CARGA DE DATOS
     // --------------------------------------------------------------
-    // ─── CICLO DE 15 CRÉDITOS DIARIOS (24 HORAS EXACTAS) ──────────────────────
-    const CYCLE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 Horas exactas
+        // ─── CICLO DE 15 CRÉDITOS DIARIOS (24 HORAS EXACTAS) ──────────────────────
+    const CYCLE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 Horas
 
     function checkDailyCreditCycle() {
       if (STATE.isVip) return;
 
       const now = Date.now();
       let cycleStart = parseInt(localStorage.getItem('verificaia_cycle_start') || '0', 10);
-      const isV15Ready = localStorage.getItem('verificaia_v15_ready') === 'true';
+      let storedCredits = localStorage.getItem('verificaia_credits');
 
-      // Forzar inicialización de 15 créditos si es la primera vez que carga esta versión
-      if (!isV15Ready) {
+      // Si es un usuario nuevo (primera vez absoluto en la web):
+      if (!cycleStart || storedCredits === null) {
         cycleStart = now;
         STATE.cycleStart = cycleStart;
         STATE.freeCreditsLeft = 15;
         localStorage.setItem('verificaia_cycle_start', cycleStart.toString());
         localStorage.setItem('verificaia_credits', '15');
-        localStorage.setItem('verificaia_v15_ready', 'true');
-        return;
-      }
-
-      // Si no existe ciclo o ya transcurrieron las 24 horas exactas: RENUEVA A 15 CRÉDITOS
-      if (!cycleStart || (now - cycleStart) >= CYCLE_DURATION_MS) {
-        const wasDepleted = localStorage.getItem('verificaia_credits') === '0';
-        cycleStart = now;
-        STATE.cycleStart = cycleStart;
-        STATE.freeCreditsLeft = 15;
-
-        localStorage.setItem('verificaia_cycle_start', cycleStart.toString());
-        localStorage.setItem('verificaia_credits', '15');
-
-        if (wasDepleted) {
-          showToast('🎉 ¡Se cumplieron las 24 horas! Tus 15 créditos diarios se han renovado.', 'success');
-        }
       } else {
         STATE.cycleStart = cycleStart;
-        const stored = localStorage.getItem('verificaia_credits');
-        STATE.freeCreditsLeft = stored !== null ? Math.min(15, parseInt(stored, 10)) : 15;
+        const elapsed = now - cycleStart;
+
+        // Si ya pasaron las 24 horas exactas desde el inicio del ciclo:
+        if (elapsed >= CYCLE_DURATION_MS) {
+          STATE.cycleStart = now;
+          STATE.freeCreditsLeft = 15;
+          localStorage.setItem('verificaia_cycle_start', now.toString());
+          localStorage.setItem('verificaia_credits', '15');
+          showToast('🎉 ¡Se cumplieron las 24 horas! Tus 15 créditos diarios han sido renovados.', 'success');
+        } else {
+          // Dentro de las 24 horas: CONSERVAR LOS CRÉDITOS QUE QUEDAN
+          STATE.freeCreditsLeft = Math.max(0, parseInt(storedCredits, 10));
+        }
       }
 
+      // Sincronizar con cuenta de usuario si está logueado
       if (STATE.currentUser) {
         syncUserAccountData(false);
       }
     }
 
+    function deductCredit() {
+      if (STATE.isVip) return;
+      STATE.freeCreditsLeft = Math.max(0, STATE.freeCreditsLeft - 1);
+      localStorage.setItem('verificaia_credits', STATE.freeCreditsLeft.toString());
+
+      if (STATE.currentUser) {
+        syncUserAccountData(false);
+      }
+
+      updateCreditDisplay();
+    }
+
     function getTimeUntilRenewal() {
-      if (!STATE.cycleStart) return { hours: 24, minutes: 0, seconds: 0, text: '24h 00m' };
+      if (!STATE.cycleStart) return { hours: 24, minutes: 0, seconds: 0, text: '24h 00m', diff: CYCLE_DURATION_MS };
       const now = Date.now();
       const nextReset = STATE.cycleStart + CYCLE_DURATION_MS;
       const diff = Math.max(0, nextReset - now);
@@ -1151,15 +1158,15 @@
           } else {
             timerBadge.classList.remove('hidden');
             timerBadge.innerText = t.short;
-            timerBadge.className = "text-[10px] text-slate-400 font-mono bg-slate-800 px-1.5 py-0.5 rounded";
+            timerBadge.className = "text-[10px] text-slate-400 font-mono bg-slate-800/90 px-1.5 py-0.5 rounded border border-slate-700/50";
           }
         }
       }, 1000);
     }
 
     function loadStoredData() {
-      // 1. Cargar usuario de Google si existe
-      loadStoredGoogleUser();
+      // 1. Cargar usuario registrado si existe sesión
+      loadStoredUserSession();
 
       // 2. Verificar ciclo diario de 15 créditos
       checkDailyCreditCycle();
@@ -1420,11 +1427,7 @@
         btn.disabled = false;
         lucide.createIcons();
 
-        if (!STATE.isVip) {
-          STATE.freeCreditsLeft = Math.max(0, STATE.freeCreditsLeft - 1);
-          localStorage.setItem('verificaia_credits', STATE.freeCreditsLeft.toString());
-          updateCreditDisplay();
-        }
+        deductCredit();
 
         // 1. Detección de marcadores sintéticos
         let markerScore = 0;
@@ -1719,11 +1722,7 @@
         btn.innerHTML = originalText;
         btn.disabled = false;
 
-        if (!STATE.isVip) {
-          STATE.freeCreditsLeft = Math.max(0, STATE.freeCreditsLeft - 1);
-          localStorage.setItem('verificaia_credits', STATE.freeCreditsLeft.toString());
-          updateCreditDisplay();
-        }
+        deductCredit();
 
         let transformed = text;
         const mode = STATE.currentMode;
@@ -2192,6 +2191,57 @@
           closeAuthModal();
           showToast(`¡Conectado con tu cuenta de Google (${email})!`, 'success');
         }
+      }
+    }
+
+    function loadStoredUserSession() {
+      const saved = localStorage.getItem('verificaia_current_user');
+      if (saved) {
+        try {
+          STATE.currentUser = JSON.parse(saved);
+          syncUserAccountData(true);
+          applyUserAuthUi();
+        } catch (e) {
+          localStorage.removeItem('verificaia_current_user');
+        }
+      }
+    }
+
+    function syncUserAccountData(isLogin) {
+      if (!STATE.currentUser || !STATE.currentUser.email) return;
+      const email = STATE.currentUser.email;
+      const usersDb = JSON.parse(localStorage.getItem('verificaia_users_db') || '{}');
+      const userData = usersDb[email] || {};
+
+      if (isLogin) {
+        // Al iniciar sesión: restaurar créditos guardados de esta cuenta
+        if (userData.credits !== undefined) {
+          STATE.freeCreditsLeft = parseInt(userData.credits, 10);
+          localStorage.setItem('verificaia_credits', STATE.freeCreditsLeft.toString());
+        }
+        if (userData.cycleStart) {
+          STATE.cycleStart = parseInt(userData.cycleStart, 10);
+          localStorage.setItem('verificaia_cycle_start', STATE.cycleStart.toString());
+        }
+        if (userData.isVip && userData.vipExpiry) {
+          const exp = new Date(userData.vipExpiry);
+          if (exp > new Date()) {
+            STATE.isVip = true;
+            STATE.vipExpiry = exp;
+            localStorage.setItem('verificaia_vip', 'true');
+            localStorage.setItem('verificaia_expiry', userData.vipExpiry);
+            applyVipUi();
+          }
+        }
+      } else {
+        // Guardar estado actual en la cuenta
+        userData.credits = STATE.freeCreditsLeft;
+        userData.cycleStart = STATE.cycleStart;
+        userData.isVip = STATE.isVip;
+        userData.vipExpiry = STATE.vipExpiry ? STATE.vipExpiry.toISOString() : null;
+        userData.lastActive = Date.now();
+        usersDb[email] = userData;
+        localStorage.setItem('verificaia_users_db', JSON.stringify(usersDb));
       }
     }
 
